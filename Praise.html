@@ -1,0 +1,384 @@
+<html>
+<body>
+
+To get started, enter your unique ID number, and press the start button. You can quit at any time with "Esc" or "q".
+<br>
+After the game, the box that appears has the results, and it's already copied to the clipboard.
+<br>
+
+<br>
+<div id="root">
+</div>
+
+<div id="startUp">
+Please enter your unique code below, then click "Start".
+<br>
+<input type="numeric" id="userNumber">
+
+<button id="StartButton" onclick="setup()">Start</button>
+</div>
+
+
+
+<script>
+unfreezeTime=null;
+zonex=40;
+zoney=30;
+numofpieces=4;
+//size of the play area
+absoluteX = 480;
+absoluteY = 270;
+//how long to play?
+timeoutInterval=20*1000;
+gameTime=null;
+gameMode=0;
+testPattern=[['a','b','a','b'],['b','a','b','a']];
+testStep=0;
+//user is the player id number
+rawData=[];
+colorList=["blue","red", "yellow", "purple", "rgb(0,255,0)"];
+//time of nothing after scoring
+coolOffTime=1*1000;
+//how fast do the boxes move
+speedCoeff=0;
+//set up User map
+// user id: [ langaugeA map, langaugeB map];
+var praiseMap = { 0: [ [["Nice.mp3","Nice"],["Great.mp3","Great"],["Super.mp3","Super"],["Excellent.mp3","Excellent"],["Waytogo.mp3","Way to go!"],["Keepitup.mp3","Keep it up!"],["Fantastic.mp3","Fantastic"],["Awesome.mp3","Awesome"],["Wonderful.mp3","Wonderful"]],
+                       [["Estupendo","Estupendo"],["Muybien.mp3","Muy bien"],["SuperESP.mp3","Super"]] ] };
+//stores the permutation for praise
+phraseNumber = [];
+currentPraise = 0;
+//Progressive Ratio numbers:
+progress=[1,2,4,8,16,32,64,128,256,512];
+responses=0;
+
+
+function setup() {
+  user=document.getElementById("userNumber").value;
+  if ( !(Object.keys(praiseMap).includes(user))){
+    
+    theRoot=document.getElementById("root");
+    theRoot.innerHTML = "Oops, no user with that number found! (hint: enter 0)";
+    return;
+  }
+  pieces = new Array(numofpieces);
+  for (i=0; i<numofpieces; ++i) pieces[i]= new component(30, 30, colorList[i], 0, 0);
+  window.addEventListener('mousedown', function (e) {
+    myGameArea.click = 1;
+  })
+  window.addEventListener('mouseup', function (e) {
+    myGameArea.click = 0;
+    myGameArea.controlling =0;
+  })
+  window.addEventListener('mousemove', function (e) {
+    myGameArea.mousex = e.pageX;
+    myGameArea.mousey = e.pageY;
+  })
+  window.addEventListener('keydown', function (e) {
+    if (e.keyCode == 27 || e.keyCode == 81) {quit()}
+  })
+//https://keycode.info/
+//to loook up keycodes
+//remove the startup stuff
+  document.getElementById("startUp").parentNode.removeChild(document.getElementById("startUp"));
+  chooseMode();
+}
+
+function chooseMode(){
+//remove everything else
+  theRoot=document.getElementById("root");
+  while (theRoot.firstChild){
+    theRoot.removeChild(theRoot.lastChild);
+  }
+//put in buttons to choose the game modes
+  buttonBox = document.createElement('div');
+  buttonBox.id="buttons";
+  baseline = document.createElement("button");
+  baseline.innerHTML = "Task 1";
+  baseline.onclick= function(){runMode(-1)};  
+  languageA = document.createElement("button");
+  languageA.innerHTML = "Task 2";
+  languageA.onclick= function(){runMode(0)};
+  languageB = document.createElement("button");
+  languageB.innerHTML = "Task 3";
+  languageB.onclick= function(){runMode(1)};
+  buttonBox.append(baseline,languageA,languageB);
+  theRoot.appendChild(buttonBox);
+}
+
+function runMode(mode){
+//remove everything else
+  theRoot=document.getElementById("root")
+  while (theRoot.firstChild){
+    theRoot.removeChild(theRoot.lastChild);
+  }
+//add the game canvas
+  activeElements=document.createElement('div');
+  quitButton=document.createElement("button");
+  quitButton.id="quit";
+  quitButton.onclick= function(){quit()};
+  quitButton.innerHTML= "Quit";
+  gameCanvas=document.createElement("canvas");
+  gameCanvas.id="zone";
+  linebreak = document.createElement("br");
+  activeElements.append(quitButton,linebreak,gameCanvas);
+  document.getElementById("root").appendChild(activeElements);
+//start the game
+  gameMode=mode;
+  myGameArea.canvas=document.getElementById("zone");
+  myGameArea.start(mode);
+  offsetx=myGameArea.canvas.getBoundingClientRect().left;
+  offsety=myGameArea.canvas.getBoundingClientRect().top;
+//reset the data
+  currentPraise = 0;
+  responses=0;
+  rawData=[];
+//set the starting time
+  gameTime=Date.now();
+  currentTime = new Date();
+  rawData.push(", userID, "+user+", , "+currentTime.toLocaleTimeString('en-US'));
+  rawData.push(", start language, "+gameMode+", , "+currentTime.toLocaleTimeString('en-US'));
+}
+
+
+function quit(){
+  myGameArea.endMode();
+}
+
+function component(width, height, color, x, y) { 
+  this.width = width;
+  this.height = height;
+  this.x = x;
+  this.y = y;
+  this.color = color;
+  rv1=Math.random();
+  rv2=Math.random();
+  //set the motion to be normally distribted in 2 dimensions by using a few transformations
+  tempx=Math.sqrt(-2*Math.log(rv1))*Math.cos(2*Math.PI*rv2);
+  tempy=Math.sqrt(-2*Math.log(rv1))*Math.sin(2*Math.PI*rv2);
+  //normalize the speed.
+  this.vector = [speedCoeff*tempx/Math.sqrt(tempx*tempx+tempy*tempy),speedCoeff*tempy/Math.sqrt(tempx*tempx+tempy*tempy)];
+  this.direction = [0,0];
+  this.direction[0]=this.vector[0];
+  this.direction[1]=this.vector[1];
+
+  this.move = function(){
+    this.x = this.x +this.direction[0];
+    this.y = this.y +this.direction[1];
+  }
+  this.draw = function(){
+    ctx = myGameArea.context;
+    ctx.fillStyle = color;
+    ctx.fillRect(this.x, this.y, this.width, this.height);
+  }
+}
+
+var myGameArea = {
+  click : 0, //tells you if the mouse is down
+  wasClicked : 0, //tells you if the mouse was down before
+  controlledIndex : 0, //tells you which piece you are controlling
+  controlling : 0, //tells you if you are currently controlling a piece
+  wasControlling : 0, //tells you if you are currently controlling a piece
+  mousex : 0, //tells you where the mouse is
+  mousey : 0, //tells you where the mouse is
+  previousMousex : 0, //tells you where the mouse was
+  previousMousey : 0, //tells you where the mouse was
+  canvas : document.getElementById("zone"),
+  lastInteraction : null,
+
+
+  endMode : function(){
+    clearInterval(this.interval);
+//make the save into text
+    outbox=document.createElement('textarea');
+    outbox.rows=rawData.length+2;
+    outbox.cols="40";
+    rawrawData="";
+    currentTime = new Date()
+    l=rawData.push(", end, , , "+currentTime.toLocaleTimeString('en-US'));
+    for (i=0; i<l; ++i){
+      rawrawData=rawrawData+rawData[i]+'\n';
+    }
+    outbox.value=rawrawData;
+    outbox.setAttribute('readonly','');
+
+    chooseMode();
+    theRoot.appendChild(outbox);
+    outbox.select();
+    document.execCommand('copy');
+  },
+
+
+  draw : function() {
+    this.context.fillStyle = "rgb(240,240,240)";
+    this.context.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    this.context.fillStyle = "rgb(160,240,160)";
+    this.context.fillRect(0, 0, zonex, zoney);
+    this.context.fillRect(0, this.canvas.height-zoney, zonex, this.canvas.height);
+    this.context.fillRect(this.canvas.width-zonex, 0, this.canvas.width, zoney);
+    this.context.fillRect(this.canvas.width-zonex, this.canvas.height-zoney, this.canvas.width, this.canvas.height);
+    for (let i=0; i<numofpieces; i++){
+      pieces[i].draw();
+    }
+  },
+
+
+  start : function() {
+    this.canvas.width = absoluteX;
+    this.canvas.height = absoluteY;
+    this.context = this.canvas.getContext("2d");
+    this.draw();
+    this.reset();
+    for (let i=0; i<numofpieces; i++){
+      pieces[i].draw();
+    }
+    this.interval = setInterval(updateGameArea, 20);
+    this.lastInteraction = Date.now();
+    this.context.font = "30px Arial";
+  },
+
+
+  update : function() {
+//if we're out of time, end the mode.
+    if (Date.now()-this.lastInteraction>timeoutInterval){
+      this.endMode();
+      return(0);
+    }
+//if we've recently scored, do nothing
+    if (unfreezeTime-Date.now()>0){
+      return(0);
+    }
+//see if something new is controlled
+    if (this.click ==1 && this.wasClicked == 0){
+      //if the mouse is clicked, check if you clicked on a piece
+      for (let i=0; i<numofpieces; i++){
+        if (pieces[i].x+offsetx<=this.mousex && pieces[i].x+pieces[i].width+offsetx>=this.mousex && pieces[i].y+offsety<this.mousey && pieces[i].y+pieces[i].height+offsety>this.mousey){
+          this.controlling = 1;
+          this.controlledIndex = i;
+        }
+      }
+    }
+//release the piece if the mouse is out of bounds
+    if (this.mousex<offsetx || this.mousey<offsety || this.mousex > this.canvas.width+offsetx || this.mousey > this.canvas.height+offsety){
+      this.controlling = 0;
+    }
+//move the controlled thing
+    if (this.controlling == 1){
+      pieces[this.controlledIndex].x += this.mousex - this.previousMousex;
+      pieces[this.controlledIndex].y += this.mousey - this.previousMousey;
+    }
+//check for scoring
+    currentTime = new Date();
+    for (let i=0; i<numofpieces; i++){
+//if box in corner:
+      if ((this.click ==0 && this.wasClicked==1 && this.wasControlled ==1 && pieces[i].x+pieces[i].width>this.canvas.width-zonex && pieces[i].y<zoney)
+        || (this.click ==0 && this.wasClicked==1 && this.wasControlled ==1 && pieces[i].x+pieces[i].width>this.canvas.width-zonex && pieces[i].y+pieces[i].height>this.canvas.height-zoney)
+        || (this.click ==0 && this.wasClicked==1 && this.wasControlled ==1 && pieces[i].x<zonex && pieces[i].y<zoney)
+        || (this.click ==0 && this.wasClicked==1 && this.wasControlled ==1 && pieces[i].x<zonex && pieces[i].y+pieces[i].height>this.canvas.height-zoney)){
+        rawData.push(", Corner, , , "+currentTime.toLocaleTimeString('en-US'));
+        this.score(gameMode);
+        return(0);
+      }
+    }
+//push variables
+    this.previousMousex=this.mousex;
+    this.previousMousey=this.mousey;
+    if (this.click ==1) { this.wasClicked =1 }
+    if (this.click ==0) { this.wasClicked =0 }
+    if (this.controlling ==1) { this.wasControlled =1 }
+    if (this.controlling ==0) { this.wasControlled =0 }
+//handle bounces
+    for (let i=0; i<numofpieces; i++){
+      if (pieces[i].x<0){
+        pieces[i].direction[0]=Math.abs(pieces[i].vector[0])
+      }
+      if (pieces[i].x+pieces[i].width>this.canvas.width){
+        pieces[i].direction[0]=-Math.abs(pieces[i].vector[0])
+      }
+      if (pieces[i].y<0){
+        pieces[i].direction[1]=Math.abs(pieces[i].vector[1])
+      }
+      if (pieces[i].y+pieces[i].height>this.canvas.height){
+        pieces[i].direction[1]=-Math.abs(pieces[i].vector[1])
+      }
+//still need something to handle the pieces going into the zones on their own.
+      if (this.controlling!=1 || this.controlledIndex != i){
+        pieces[i].move();
+      }
+    }
+    this.draw();
+  },
+
+
+//TODO: Debug thiis
+  score : function(language) { 
+    responses+=1;
+    //console.log(responses);
+
+    if (language==-1){
+      this.lastInteraction = Date.now();
+      this.reset();
+      return;
+    }
+    if (currentPraise==0){
+      l=praiseMap[user][language].length;
+      phraseNumber=[];
+      tempList=[];
+      for (let i=0; i<l; i++) tempList.push(i);
+      for (let i=0; i<l; i++){
+        moveItem=tempList[Math.floor(Math.random()*tempList.length)];
+        phraseNumber.push(moveItem);
+        index = tempList.indexOf(moveItem);
+        tempList.splice(index,1);
+      }
+      
+    }
+    this.lastInteraction = Date.now();
+    if (progress.includes(responses)){
+      unfreezeTime = Date.now()+coolOffTime;
+      this.blank();
+      var audio = new Audio(praiseMap[user][language][phraseNumber[currentPraise]][0]);
+      audio.play();
+      this.context.fillText(praiseMap[user][language][phraseNumber[currentPraise]][1], this.canvas.width/5, 60);
+      currentPraise+=1;
+      if (currentPraise==praiseMap[user][language].length){
+        currentPraise=0;
+      }
+    }
+    this.reset();
+  },
+
+
+  blank : function() {
+    this.context.fillStyle = "rgb(240,240,240)";
+    this.context.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    this.context.fillStyle = "rgb(0,0,0)";
+  },
+
+
+  reset : function() {
+    for (let i=0; i<numofpieces; i++){
+      pieces[i].x=(this.canvas.width-2*zonex-pieces[i].width)*Math.random()+zonex;
+      pieces[i].y=(this.canvas.height-2*zoney-pieces[i].height)*Math.random()+zoney;
+      rv1=Math.random();
+      rv2=Math.random();
+      //set the motion to be normally distribted in 2 dimensions by using a few transformations
+      tempx=Math.sqrt(-2*Math.log(rv1))*Math.cos(2*Math.PI*rv2);
+      tempy=Math.sqrt(-2*Math.log(rv1))*Math.sin(2*Math.PI*rv2);
+      //normalize the speed.
+      pieces[i].vector = [speedCoeff*tempx/Math.sqrt(tempx*tempx+tempy*tempy),speedCoeff*tempy/Math.sqrt(tempx*tempx+tempy*tempy)];
+      pieces[i].direction[0]=pieces[i].vector[0];
+      pieces[i].direction[1]=pieces[i].vector[1];
+    }
+    this.controlling=0;
+  }
+}
+
+function updateGameArea() {
+  myGameArea.update();
+}
+</script>
+
+
+</body>
+</html>
