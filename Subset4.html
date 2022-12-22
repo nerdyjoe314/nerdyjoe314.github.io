@@ -24,12 +24,13 @@ holdDuration=1; //in seconds
 bP=0; //baseline points
 pP=1; //problem points
 rP=4; //reinforcer points
+numberOfRounds=12;
 rewardDuration=1; //in seconds
 roundDuration=30; //in seconds
 colorList=["blue","black", "yellow", "purple", "rgb(0,255,0)"]; //colors of the pieces
 praise="Good job!";
 
-goodProbability = [0,1,0.8,0.6,0.4,0.2,0,1,0.2,0.4,0.6,0.8];
+goodProbability = [0,1,1,1,1,1,0,1,1,1,1,1];
 badProbability = [1,1,0.8,0.6,0.4,0.2,1,1,0.2,0.4,0.6,0.8];
 goodPoints = [bP,rP,rP,rP,rP,rP,bP,rP,rP,rP,rP,rP];
 badPoints = [pP,pP,rP,rP,rP,rP,pP,pP,rP,rP,rP,rP];
@@ -65,13 +66,21 @@ function runGame(){
 
 //check localstorage for a save, load the save
   mode=Number(localStorage.getItem("mode"));
-  if (mode==NaN || mode<0 || mode>11){
+  if (mode==NaN || mode<0 || mode==null){
     mode=0;
     stringData = JSON.stringify([[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0]]);
     localStorage.setItem("data", stringData);
+    localStorage.setItem("mode", 0);
   }
   stringData=localStorage.getItem("data");
   data = JSON.parse(stringData);
+  if (stringData==null){
+    data = [[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0]];
+  }
+  if (mode>=3){ 
+    displayData();
+    return(0);
+  }
 
 //add the game canvas
   activeElements=document.createElement('div');
@@ -101,11 +110,75 @@ function runGame(){
   //rawData.push(", start , "+printTime.toLocaleTimeString('en-US'));
 }
 
+function displayData(){
+//remove everything else
+  theRoot=document.getElementById("root")
+  while (theRoot.firstChild){
+    theRoot.removeChild(theRoot.lastChild);
+  }
+
+//display the data
+  outbox=document.createElement('textarea');
+  outbox.rows=10;
+  outbox.cols=40;
+  outbox.value=stringData;
+  outbox.setAttribute('readonly','');
+
+  theRoot.appendChild(outbox);
+  outbox.select();
+  document.execCommand('copy');
+
+
+  activeElements=document.createElement('div');
+  nextButton=document.createElement("button");
+  nextButton.id="nextMode";
+  nextButton.onclick= function(){reset()};
+  nextButton.innerHTML= "Reset";
+  instructionText=document.createElement('div');
+  instructionText.textContent = "Press the button to reset.";
+  linebreak = document.createElement("br");
+  activeElements.append(instructionText,linebreak,nextButton);
+  document.getElementById("root").appendChild(activeElements);
+}
+
+function reset(){
+
+//remove everything else
+  theRoot=document.getElementById("root")
+  while (theRoot.firstChild){
+    theRoot.removeChild(theRoot.lastChild);
+  }
+
+//reset data
+  mode=0;
+  stringData = JSON.stringify([[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0]]);
+  localStorage.setItem("data", stringData);
+  localStorage.setItem("mode", 0);
+
+//make the starting prompt
+  activeElements=document.createElement('div');
+  nextButton=document.createElement("button");
+  nextButton.id="nextMode";
+  nextButton.onclick= function(){runGame()};
+  nextButton.innerHTML= "Start";
+  instructionText=document.createElement('div');
+  instructionText.textContent = "Press the button to begin session "+(mode+1)+".";
+  linebreak = document.createElement("br");
+  activeElements.append(instructionText,linebreak,nextButton);
+  document.getElementById("root").appendChild(activeElements);
+
+}
+
 function endingMode() {
 
   theRoot=document.getElementById("root")
   while (theRoot.firstChild){
     theRoot.removeChild(theRoot.lastChild);
+  }
+
+  if (mode+1>=numberOfRounds){
+    displayData();
+    return(0);
   }
 //make the prompt
 
@@ -115,7 +188,7 @@ function endingMode() {
   nextButton.onclick= function(){runGame()};
   nextButton.innerHTML= "Start";
   instructionText=document.createElement('div');
-  instructionText.textContent = "Press the button to begin session "+(mode+1)+".";
+  instructionText.textContent = "Press the button to begin session "+(mode+2)+".";
   linebreak = document.createElement("br");
   activeElements.append(instructionText,linebreak,nextButton);
   document.getElementById("root").appendChild(activeElements);
@@ -199,7 +272,10 @@ var gameArea = {
            goodClicks=goodClicks+1;
         }
         if (this.isTracking==1){
-           if (Math.random()<badProbability[mode]) playerScore=playerScore+badPoints[mode];
+           if (Math.random()<badProbability[mode]){
+             playerScore=playerScore+badPoints[mode];
+             this.lastRewarded=currentTime;
+           }
            badClicks=badClicks+1;
         }
         
