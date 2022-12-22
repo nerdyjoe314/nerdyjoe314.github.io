@@ -1,0 +1,298 @@
+<html>
+<body>
+
+<div id="root">
+</div>
+
+<div id="startUp">
+Press button to start.
+</br>
+</br>
+<button id="StartButton" onclick="setup()">Start</button>
+</div>
+
+
+
+<script>
+absoluteX=800;
+absoluteY=600;
+numberOfPieces=2;
+playerScore=0;
+pieceRadius=40; //in pixels
+pieceSpeed=40; //in pixels per second
+holdDuration=1; //in seconds
+bP=0; //baseline points
+pP=1; //problem points
+rP=4; //reinforcer points
+rewardDuration=1; //in seconds
+roundDuration=30; //in seconds
+colorList=["blue","black", "yellow", "purple", "rgb(0,255,0)"]; //colors of the pieces
+praise="Good job!";
+
+goodProbability = [0,1,0.8,0.6,0.4,0.2,0,1,0.2,0.4,0.6,0.8];
+badProbability = [1,1,1,1,1,1,1,1,1,1,1,1];
+goodPoints = [bP,rP,rP,rP,rP,rP,bP,rP,rP,rP,rP,rP];
+badPoints = [pP,pP,pP,pP,pP,pP,pP,pP,pP,pP,pP,pP];
+
+
+function setup() {
+//remove the startup stuff
+  document.getElementById("startUp").parentNode.removeChild(document.getElementById("startUp"));
+
+//add listeners for mouse clicks and moves
+  window.addEventListener('mousedown', function (e) {
+    gameArea.click = 1;
+  })
+  window.addEventListener('mouseup', function (e) {
+    gameArea.click = 0;
+  })
+  window.addEventListener('mousemove', function (e) {
+    gameArea.mousex = e.pageX;
+    gameArea.mousey = e.pageY;
+  })
+
+  pieces = new Array(numberOfPieces);
+  for (i=0; i<numberOfPieces; ++i) pieces[i]= new component(pieceRadius, colorList[i]);
+  runGame();
+}
+
+function runGame(){
+//remove everything else
+  theRoot=document.getElementById("root")
+  while (theRoot.firstChild){
+    theRoot.removeChild(theRoot.lastChild);
+  }
+
+//check localstorage for a save, load the save
+  mode=Number(localStorage.getItem("mode"));
+  if (mode==NaN || mode<0 || mode>11){
+    mode=0;
+    stringData = JSON.stringify([[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0]]);
+    localStorage.setItem("data", stringData);
+  }
+  stringData=localStorage.getItem("data");
+  data = JSON.parse(stringData);
+
+//add the game canvas
+  activeElements=document.createElement('div');
+  gameCanvas=document.createElement("canvas");
+  gameCanvas.id="zone";
+  activeElements.append(gameCanvas);
+  document.getElementById("root").appendChild(activeElements);
+  gameArea.canvas=gameCanvas;
+  gameArea.context = gameArea.canvas.getContext("2d");
+  gameCanvas.width = absoluteX;
+  gameCanvas.height = absoluteY;
+
+//start the game
+  gameArea.start();
+  offsetx=gameArea.canvas.getBoundingClientRect().left;
+  offsety=gameArea.canvas.getBoundingClientRect().top;
+
+//reset the data
+  playerScore=0;
+  goodClicks=0;
+  badClicks=0;
+
+//set the starting time
+  startTime=Date.now();
+  currentTime =Date.now();
+  printTime = new Date(currentTime);
+  //rawData.push(", start , "+printTime.toLocaleTimeString('en-US'));
+}
+
+function endingMode() {
+
+  theRoot=document.getElementById("root")
+  while (theRoot.firstChild){
+    theRoot.removeChild(theRoot.lastChild);
+  }
+//make the prompt
+
+  activeElements=document.createElement('div');
+  nextButton=document.createElement("button");
+  nextButton.id="nextMode";
+  nextButton.onclick= function(){runGame()};
+  nextButton.innerHTML= "Start";
+  instructionText=document.createElement('div');
+  instructionText.textContent = "Press the button to begin session "+(mode+1)+".";
+  linebreak = document.createElement("br");
+  activeElements.append(instructionText,linebreak,nextButton);
+  document.getElementById("root").appendChild(activeElements);
+
+}
+
+
+function component(radius, color, x, y) { 
+  this.radius = radius;
+  this.x = Math.random()*(absoluteX-2*radius)+radius;
+  this.y = Math.random()*(absoluteY-2*radius)+radius;
+  this.color = color;
+  rv1=Math.random();
+  rv2=Math.random();
+  //set the motion to be normally distribted in 2 dimensions by using a few transformations
+  tempx=Math.sqrt(-2*Math.log(rv1))*Math.cos(2*Math.PI*rv2);
+  tempy=Math.sqrt(-2*Math.log(rv1))*Math.sin(2*Math.PI*rv2);
+  //normalize the speed.
+  speedCoeff = pieceSpeed/50;
+  this.vector = [speedCoeff*tempx/Math.sqrt(tempx*tempx+tempy*tempy),speedCoeff*tempy/Math.sqrt(tempx*tempx+tempy*tempy)];
+  this.direction = [0,0];
+  this.direction[0]=this.vector[0];
+  this.direction[1]=this.vector[1];
+
+  this.move = function(){
+    this.x = this.x +this.direction[0];
+    this.y = this.y +this.direction[1];
+  }
+  this.draw = function(){
+    ctx = gameArea.context;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(this.x,this.y,this.radius,0,2*Math.PI);
+    ctx.fill();
+  }
+}
+
+var gameArea = {
+  click : 0, //tells you if the mouse is down
+  wasClicked : 0, //tells you if the mouse is down
+  isTracking : -1, //tells you which piece you're tracking down
+  trackingStart : 0, //when did we start tracking the object?
+  lastRewarded : 0, //when did we last get given a reward?
+  mousex : 0, //tells you the x-coord of mouse
+  mousey : 0, //tells you the y-coord of mouse
+  canvas : 0, //to draw on. Needs initialization in runGame()
+
+  update : function() {
+//if we're out of time, end the mode.
+    currentTime = Date.now();
+    if (currentTime-startTime>roundDuration*1000){
+      this.endMode();
+      return(0);
+    }
+
+//on-click
+    if (this.wasClicked==0 && this.click ==1){
+//check if we clicked on an object
+      for (let i=0; i<numberOfPieces; i++){
+        distance = (this.mousex-pieces[i].x)*(this.mousex-pieces[i].x) + (this.mousey-pieces[i].y)*(this.mousey-pieces[i].y);
+        if (distance<=pieces[i].radius*pieces[i].radius){
+          this.isTracking=i;
+          this.trackingStart=currentTime;
+        }
+      }
+    }
+//if we're tracking
+    if (this.isTracking>=0){
+      distance = (this.mousex-pieces[this.isTracking].x)*(this.mousex-pieces[this.isTracking].x) + (this.mousey-pieces[this.isTracking].y)*(this.mousey-pieces[this.isTracking].y);
+//check if we unclick or fall off
+      if (this.click==0 || distance>pieces[this.isTracking].radius*pieces[this.isTracking].radius){
+        this.isTracking=-1;
+      }
+//if we held for a second, reward and stop tracking
+      if (currentTime-this.trackingStart>holdDuration*1000){
+        if (this.isTracking==0){
+           if (Math.random()<goodProbability[mode]){
+             playerScore=playerScore+goodPoints[mode];
+             this.lastRewarded=currentTime;
+           }
+           goodClicks=goodClicks+1;
+        }
+        if (this.isTracking==1){
+           if (Math.random()<badProbability[mode]) playerScore=playerScore+badPoints[mode];
+           badClicks=badClicks+1;
+        }
+        
+        this.isTracking=-1;
+      }
+    }
+
+//handle bounces
+    for (let i=0; i<numberOfPieces; i++){
+      if (pieces[i].x-pieces[i].radius<0){
+        pieces[i].direction[0]=Math.abs(pieces[i].vector[0])
+      }
+      if (pieces[i].x+pieces[i].radius>this.canvas.width){
+        pieces[i].direction[0]=-Math.abs(pieces[i].vector[0])
+      }
+      if (pieces[i].y-pieces[i].radius<0){
+        pieces[i].direction[1]=Math.abs(pieces[i].vector[1])
+      }
+      if (pieces[i].y+pieces[i].radius>this.canvas.height){
+        pieces[i].direction[1]=-Math.abs(pieces[i].vector[1])
+      }
+//move 
+      pieces[i].move();
+    }
+
+
+//push variables
+    if (gameArea.click ==1) { gameArea.wasClicked =1 }
+    if (gameArea.click ==0) { gameArea.wasClicked =0 }
+
+//redraw
+    this.draw();
+
+  },
+
+  draw : function() {
+    this.context.fillStyle = "rgb(240,240,240)";
+    this.context.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    for (let i=0; i<numberOfPieces; i++){
+      pieces[i].draw();
+    }
+    this.context.font = "30px Arial";
+    this.context.fillStyle = "rgb(0,0,0)";
+    this.context.fillText("Points:" + playerScore, 10, 30);
+    minLeft=Math.floor((roundDuration*1000 - currentTime + startTime)/1000/60);
+    secLeft=Math.floor((roundDuration*1000 - currentTime + startTime)/1000)-minLeft*60;
+    if (secLeft<10) secLeft='0'+secLeft;
+    if (minLeft<10) minLeft='0'+minLeft;
+    this.context.fillText("Time Left:  " +minLeft + ":"+ secLeft, this.canvas.width-240, 30);
+    //this.context.fillText("Tracking:" + this.isTracking, this.canvas.width/2, 30);
+    //this.context.fillText("Gamemode:" + gameModeNames[gameMode], 30, 90);
+    if (Date.now()-this.lastRewarded<1000*rewardDuration){
+      this.context.fillStyle = "rgb(0,255,0)";
+      this.context.fillText(praise, this.canvas.width/2-120, 30);
+    }
+  },
+
+
+
+  start : function() {
+    this.interval = setInterval(updateGameArea, 20);
+    paused=0;
+  },
+
+
+  pause : function() {
+    clearInterval(this.interval);
+    paused=1;
+  },
+
+  endMode : function(){
+    if (paused == 0){
+       this.pause();
+    }
+//write the save
+
+
+    data[mode]=[goodClicks,badClicks];
+    stringData = JSON.stringify(data);
+    localStorage.setItem("data", stringData);
+//move to next mode
+    localStorage.setItem("mode", mode+1);
+//pass to the external ending to clean up html
+    endingMode();
+  },
+
+}
+
+function updateGameArea() {
+  gameArea.update();
+}
+</script>
+
+
+</body>
+</html>
